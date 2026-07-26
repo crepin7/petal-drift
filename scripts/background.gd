@@ -60,8 +60,8 @@ func _draw() -> void:
 
 func _draw_star_layer(stars: Array, size_mult: float) -> void:
 	for star in stars:
-		var twinkle := sin(Time.get_ticks_msec() * 0.001 * star["twinkle_speed"] + star["twinkle_offset"])
-		var brightness := star["brightness"] * (0.7 + 0.3 * twinkle)
-		var color := Color(brightness, brightness * 0.9, brightness, brightness)
-		var radius := star["radius"] * size_mult * (0.8 + 0.2 * twinkle)
+		var twinkle: float = sin(Time.get_ticks_msec() * 0.001 * star["twinkle_speed"] + star["twinkle_offset"])
+		var brightness: float = star["brightness"] * (0.7 + 0.3 * twinkle)
+		var color: Color = Color(brightness, brightness * 0.9, brightness, brightness)
+		var radius: float = star["radius"] * size_mult * (0.8 + 0.2 * twinkle)
 		draw_circle(star["pos"], radius, color)

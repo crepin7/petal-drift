@@ -108,7 +108,7 @@ func _draw_petal() -> void:
 		sprite.color = Color(1.0, 0.85, 0.4, 1.0)  # Warm golden
 
 func _draw_glow() -> void:
-	if not glow or not (glow is PointMesh2D or glow is Sprite2D):
+	if not glow or not (glow is Sprite2D):
 		return
 	# Simple approach: just position the glow behind the petal
 	glow.scale = Vector2(3.0, 3.0)
@@ -148,7 +148,7 @@ func _input(event: InputEvent) -> void:
 	
 	if event is InputEventScreenTouch:
 		if event.pressed:
-			var touch_x := event.position.x
+			var touch_x: float = event.position.x
 			var half := screen_size.x / 2.0
 			if touch_x < half:
 				is_touching_left = true
