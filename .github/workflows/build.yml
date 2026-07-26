@@ -47,7 +47,6 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE"
           mkdir -p build
-          # Use headless mode to export just the PCK
           xvfb-run godot \
             --display-driver x11 \
             --rendering-driver opengl3 \
@@ -63,20 +62,23 @@ jobs:
           # Copy the template APK
           cp "$TEMPLATES_DIR/android_debug.apk" "${EXPORT_NAME}.apk"
           
-          # Add PCK to APK (replace existing data.pck if any, or add new)
-          if zipinfo "${EXPORT_NAME}.apk" "assets/data.pck" > /dev/null 2>&1; then
-            echo "Replacing existing data.pck in APK..."
-            zip -j "${EXPORT_NAME}.apk" "${EXPORT_NAME}.pck" --out temp.apk
-            # Remove old entry and add with correct name
-            zip -d temp.apk "assets/data.pck"
-            zip -j temp.apk "${EXPORT_NAME}.pck" --rename "assets/data.pck"
-            mv temp.apk "${EXPORT_NAME}.apk"
-          else
-            echo "Adding new data.pck to APK..."
-            zip -j "${EXPORT_NAME}.apk" "${EXPORT_NAME}.pck" --rename "assets/data.pck"
-          fi
+          # Remove old PCK if present, then add ours with correct path
+          zip -d "${EXPORT_NAME}.apk" "assets/data.pck" 2>/dev/null || true
           
-          # Sign the APK with debug keystore
+          # Prepare the PCK with correct internal path
+          mkdir -p /tmp/pck_staging/assets
+          cp "${EXPORT_NAME}.pck" /tmp/pck_staging/assets/data.pck
+          
+          # Add to APK
+          cd /tmp/pck_staging
+          zip -r "$GITHUB_WORKSPACE/build/${EXPORT_NAME}.apk" assets/
+          cd "$GITHUB_WORKSPACE/build"
+          
+          # Re-align APK (zipalign) then sign
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          "$ANDROID_HOME/build-tools/34.0.0/zipalign" -f 4 "${EXPORT_NAME}.apk" "${EXPORT_NAME}-aligned.apk"
+          mv "${EXPORT_NAME}-aligned.apk" "${EXPORT_NAME}.apk"
+          
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
             --ks "$HOME/.android/debug.keystore" \
             --ks-pass pass:android \
