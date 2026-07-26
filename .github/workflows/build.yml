@@ -10,32 +10,18 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
-    container:
-      image: barichello/godot-ci:4.3
+    name: Build Android APK
 
     steps:
       - uses: actions/checkout@v4
 
-      # Install Android SDK components required by Godot
-      - name: Setup Android SDK
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install \
-            "platforms;android-34" \
-            "build-tools;34.0.0" \
-            "ndk;23.2.8568313" > /dev/null 2>&1 || true
-
-      # Create debug keystore (required for unsigned APK)
-      - name: Create debug keystore
-        run: |
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android -dname "CN=,OU=,O=,L=,S=,C="
-
-      # Export the APK
-      - name: Export Android APK
-        run: |
-          mkdir -p build
-          godot --headless --export-debug "Android" build/petal-drift.apk
+      # Use the godot-ci action that handles all the Android SDK + templates setup
+      - name: Build with Godot CI
+        uses: abarichello/godot-ci@v4
+        with:
+          version: 4.3
+          export_preset: Android
+          export_path: build/petal-drift.apk
 
       # Upload the APK as artifact
       - name: Upload APK
