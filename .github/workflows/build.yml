@@ -32,9 +32,8 @@ jobs:
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
 
-      - name: Install xvfb + setup Godot
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
+      - name: Install xvfb
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
 
       - name: Setup Godot 4.3
         uses: chickensoft-games/setup-godot@v2
@@ -52,12 +51,20 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Init editor + Export
+      - name: Install Android build template in project
+        run: |
+          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
+          echo "Extracting android_source.zip into project..."
+          unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE"
+          echo "Contents of android/ directory:"
+          ls -la "$GITHUB_WORKSPACE/android/" 2>/dev/null || echo "NOT FOUND"
+
+      - name: Init editor + Export APK
         run: |
           cd "$GITHUB_WORKSPACE"
-          # First: init editor to generate settings file
+          # Init editor to generate settings
           xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
-          # Now: export
+          # Export
           mkdir -p build
           xvfb-run godot \
             --display-driver x11 \
