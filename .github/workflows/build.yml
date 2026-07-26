@@ -54,15 +54,20 @@ jobs:
 
       - name: Export PCK
         run: |
+          set +e
           cd "$GITHUB_WORKSPACE"
           mkdir -p build
           xvfb-run godot \
             --display-driver x11 \
             --rendering-driver opengl3 \
-            --export-pack "Android" "build/${EXPORT_NAME}.pck" || true
+            --export-pack "Android" "build/${EXPORT_NAME}.pck"
           PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck" 2>/dev/null || echo "0")
-          echo "PCK exported: ${PCK_SIZE} bytes"
-          [ "$PCK_SIZE" -lt 1000 ] && echo "ERROR: PCK too small" && exit 1
+          echo "PCK size: ${PCK_SIZE} bytes"
+          if [ "$PCK_SIZE" -lt 1000 ]; then
+            echo "ERROR: PCK too small (${PCK_SIZE} bytes)"
+            exit 1
+          fi
+          exit 0
 
       - name: Build APK with Gradle
         run: |
