@@ -26,6 +26,9 @@ jobs:
           include-templates: true
           cache: true
 
+      - name: Install xvfb
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
+
       - name: Create debug keystore
         run: |
           mkdir -p "$HOME/.android"
@@ -34,10 +37,21 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
+      - name: Initialize Godot editor (create settings)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
+          echo "Editor settings:"
+          find "$HOME/.config/godot" -name "editor*" 2>/dev/null
+
       - name: Export APK
         run: |
+          cd "$GITHUB_WORKSPACE"
           mkdir -p build
-          godot --headless --export-debug "Android" "build/${EXPORT_NAME}.apk"
+          xvfb-run godot \
+            --display-driver x11 \
+            --rendering-driver opengl3 \
+            --export-debug "Android" "build/${EXPORT_NAME}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
