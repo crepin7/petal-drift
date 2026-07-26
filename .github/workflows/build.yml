@@ -24,14 +24,6 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install SDK components
-        run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
-
       - name: Install xvfb
         run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
 
@@ -51,30 +43,49 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Install Android build template
-        run: |
-          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
-          mkdir -p "$GITHUB_WORKSPACE/android"
-          unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE/android"
-          echo "android/ directory contents:"
-          ls "$GITHUB_WORKSPACE/android/"
-
-      - name: Init editor + Export APK
+      - name: Export PCK file
         run: |
           cd "$GITHUB_WORKSPACE"
-          # Clean slate - remove all Godot caches
-          rm -rf .godot/
-          # Init editor (android/ already present from previous step)
-          xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
-          # Verify .godot was created
-          echo ".godot contents:"
-          ls -la .godot/ 2>/dev/null
-          # Export
           mkdir -p build
+          # Use headless mode to export just the PCK
           xvfb-run godot \
             --display-driver x11 \
             --rendering-driver opengl3 \
-            --export-debug "Android" "build/${EXPORT_NAME}.apk"
+            --export-pack "Android" "build/${EXPORT_NAME}.pck"
+          echo "PCK exported:"
+          ls -la build/*.pck 2>/dev/null || echo "PCK NOT FOUND"
+
+      - name: Build APK manually
+        run: |
+          cd "$GITHUB_WORKSPACE/build"
+          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
+          
+          # Copy the template APK
+          cp "$TEMPLATES_DIR/android_debug.apk" "${EXPORT_NAME}.apk"
+          
+          # Add PCK to APK (replace existing data.pck if any, or add new)
+          if zipinfo "${EXPORT_NAME}.apk" "assets/data.pck" > /dev/null 2>&1; then
+            echo "Replacing existing data.pck in APK..."
+            zip -j "${EXPORT_NAME}.apk" "${EXPORT_NAME}.pck" --out temp.apk
+            # Remove old entry and add with correct name
+            zip -d temp.apk "assets/data.pck"
+            zip -j temp.apk "${EXPORT_NAME}.pck" --rename "assets/data.pck"
+            mv temp.apk "${EXPORT_NAME}.apk"
+          else
+            echo "Adding new data.pck to APK..."
+            zip -j "${EXPORT_NAME}.apk" "${EXPORT_NAME}.pck" --rename "assets/data.pck"
+          fi
+          
+          # Sign the APK with debug keystore
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
+            --ks "$HOME/.android/debug.keystore" \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            "${EXPORT_NAME}.apk"
+          
+          echo "APK built successfully:"
+          ls -la "${EXPORT_NAME}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
