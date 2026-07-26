@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Godot 4
+      - name: Setup Godot 4.3
         uses: chickensoft-games/setup-godot@v2
         with:
           version: "4.3.0"
@@ -49,62 +49,14 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Write editor settings script
+      - name: Export APK (with xvfb virtual display)
         run: |
-          cat > /tmp/write_settings.py << 'PYEOF'
-          import os
-          home = os.environ['HOME']
-          jhome = os.environ.get('JAVA_HOME', '')
-          ahome = os.environ.get('ANDROID_HOME', '')
-          tmpl_dir = os.path.join(home, '.local/share/godot/export_templates/4.3.stable')
-          content = f"""[gd_resource type="EditorSettings" load_steps=2 format=3]
-
-          [resource]
-          version = 4
-          rendering/quality/driver/driver_name = "opengl3"
-          android/java_sdk_path = "{jhome}"
-          android/android_sdk_path = "{ahome}"
-          android/debug_keystore = "{home}/.android/debug.keystore"
-          android/debug_keystore_pass = "android"
-          android/debug_keystore_alias = "androiddebugkey"
-          android/force_system_user = true
-          export/export_template_paths/android_debug.apk = "{tmpl_dir}/android_debug.apk"
-          export/export_template_paths/android_release.apk = "{tmpl_dir}/android_release.apk"
-          export/export_template_paths/android_source.zip = "{tmpl_dir}/android_source.zip"
-          """
-          settings_dir = os.path.join(home, '.config', 'godot')
-          os.makedirs(settings_dir, exist_ok=True)
-          path = os.path.join(settings_dir, 'editor_settings-4.3.tres')
-          with open(path, 'w') as f:
-              f.write(content.strip())
-          print('Created:', path)
-          PYEOF
-
-      - name: Configure Godot editor settings
-        run: python3 /tmp/write_settings.py
-        env:
-          JAVA_HOME: "${{ env.JAVA_HOME }}"
-          ANDROID_HOME: "${{ env.ANDROID_HOME }}"
-
-      - name: Also init editor with virtual display for proper defaults
-        run: |
-          sudo apt-get install -y -qq xvfb > /dev/null 2>&1
-          # Force X11 display driver with xvfb to create full editor settings
-          xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
-          echo "Editor settings after init:"
-          find "$HOME/.config/godot" -name "editor*" 2>/dev/null | head -3
-
-      - name: Verify export templates
-        run: |
-          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
-          echo "Templates dir: $TEMPLATES_DIR"
-          ls -la "$TEMPLATES_DIR/" 2>/dev/null || echo "Not found!"
-          find "$HOME/.local/share/godot" -name "android_source*" 2>/dev/null
-
-      - name: Export APK
-        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
           mkdir -p build
-          godot --headless --rendering-driver opengl3 \
+          # Use xvfb with X11 display driver to get full editor init
+          xvfb-run godot \
+            --display-driver x11 \
+            --rendering-driver opengl3 \
             --export-debug "Android" "build/${EXPORT_NAME}.apk"
         env:
           ANDROID_HOME: "${{ env.ANDROID_HOME }}"
