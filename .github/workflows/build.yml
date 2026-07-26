@@ -34,7 +34,7 @@ jobs:
           sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1
 
       - name: Install xvfb
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
+        run: sudo apt-get update -qq && sudo -S -p '' apt-get install -y -qq xvfb > /dev/null 2>&1
 
       - name: Setup Godot 4.3
         uses: chickensoft-games/setup-godot@v2
@@ -71,51 +71,48 @@ jobs:
 
       - name: Build APK with Gradle
         run: |
+          set +e
           cd "$GITHUB_WORKSPACE"
           TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
 
           # Extract Android Gradle project
           unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE"
 
-          # Copy PCK
+          # Copy PCK into assets
           mkdir -p "$GITHUB_WORKSPACE/assets"
           cp "build/${EXPORT_NAME}.pck" "$GITHUB_WORKSPACE/assets/data.pck"
 
-          # Patch config.gradle with correct package name + version
-          if [ -f config.gradle ]; then
-            sed -i "s/applicationId=.*/applicationId=\"${PACKAGE_NAME}\"/" config.gradle
-            sed -i "s/versionCode=.*/versionCode=1/" config.gradle
-            sed -i "s/versionName=.*/versionName=\"1.0\"/" config.gradle
-            echo "=== config.gradle ==="
-            cat config.gradle
-          fi
+          # Add project config to gradle.properties
+          echo "" >> gradle.properties
+          echo "# Petal Drift Android configuration" >> gradle.properties
+          echo "exportEnabled=true" >> gradle.properties
+          echo "package_name=${PACKAGE_NAME}" >> gradle.properties
+          echo "version_code=1" >> gradle.properties
+          echo "version_name=1.0" >> gradle.properties
+          echo "perform_signing=true" >> gradle.properties
+          echo "keystore=${HOME}/.android/debug.keystore" >> gradle.properties
+          echo "keystore_user=androiddebugkey" >> gradle.properties
+          echo "keystore_password=android" >> gradle.properties
 
-          # Patch AndroidManifest.xml
-          if [ -f AndroidManifest.xml ]; then
-            sed -i "s/package=\"[^\"]*\"/package=\"${PACKAGE_NAME}\"/" AndroidManifest.xml
-            echo "=== AndroidManifest.xml ==="
-            grep "package=" AndroidManifest.xml
-          fi
-
-          # Print gradle.properties
           echo "=== gradle.properties ==="
-          cat gradle.properties 2>/dev/null || echo "no gradle.properties"
-
-          # Print signing config from build.gradle
-          echo "=== build.gradle signing section ==="
-          grep -A10 "signingConfig" build.gradle 2>/dev/null || echo "no signingConfig found"
+          cat gradle.properties
 
           # Build debug APK
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon 2>&1 | tail -30
+          GRADLE_EXIT=$?
+
+          echo "Gradle exit code: $GRADLE_EXIT"
 
           # Copy output
           APK_OUT=$(find . -path "*/outputs/apk/debug/*.apk" -type f | head -1)
           if [ -z "$APK_OUT" ]; then
-            echo "ERROR: No APK found"
-            find . -name "*.apk" -type f 2>/dev/null
+            echo "ERROR: No APK found in build outputs"
+            find . -name "*.apk" -type f 2>/dev/null || true
+            find . -path "*/outputs/*" -type f 2>/dev/null | head -20
             exit 1
           fi
+
           mkdir -p build
           cp "$APK_OUT" "build/${EXPORT_NAME}.apk"
           echo "=== APK built ==="
