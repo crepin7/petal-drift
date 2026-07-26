@@ -15,26 +15,60 @@ jobs:
     name: Build Android APK
     runs-on: ubuntu-latest
     container:
-      image: barichello/godot-ci:4.3-stable
+      image: barichello/godot-ci:4.3
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate debug keystore
+      - name: Verify Godot
+        run: |
+          godot --version
+          which godot
+
+      - name: Install export templates
+        run: |
+          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
+          mkdir -p "$TEMPLATES_DIR"
+          echo "Downloading export templates..."
+          wget -q "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz" \
+            -O /tmp/templates.tpz
+          echo "Extracting..."
+          cd /tmp && unzip -qo /tmp/templates.tpz -d templates_extracted
+          ls /tmp/templates_extracted/
+          # The tpz contains a 'templates/' directory with all platform templates
+          if [ -d "/tmp/templates_extracted/templates" ]; then
+            cp -r /tmp/templates_extracted/templates/* "$TEMPLATES_DIR/"
+          else
+            cp -r /tmp/templates_extracted/* "$TEMPLATES_DIR/"
+          fi
+          echo "Templates installed:"
+          ls -la "$TEMPLATES_DIR/" | head -10
+
+      - name: Accept SDK licenses & install components
+        run: |
+          SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -f "$SDK" ]; then
+            SDK=$(find "$ANDROID_HOME" -name "sdkmanager" 2>/dev/null | head -1)
+          fi
+          echo "Using sdkmanager: $SDK"
+          yes | $SDK --licenses > /dev/null 2>&1 || true
+          yes | $SDK "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+
+      - name: Create debug keystore
         run: |
           mkdir -p "$HOME/.android"
           keytool -genkey -v -keystore "$HOME/.android/debug.keystore" \
             -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
-          echo "✓ Keystore created at $HOME/.android/debug.keystore"
+          echo "✓ Keystore ready"
 
-      - name: Export Android APK
+      - name: Export APK
         run: |
           mkdir -p build
           godot --headless --export-debug "Android" "build/${EXPORT_NAME}.apk"
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: petal-drift-android
