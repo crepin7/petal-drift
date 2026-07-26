@@ -62,12 +62,13 @@ jobs:
       - name: Init editor + Export APK
         run: |
           cd "$GITHUB_WORKSPACE"
-          # Init editor FIRST (now android/ exists so cache includes it)
+          # Clean slate - remove all Godot caches
+          rm -rf .godot/
+          # Init editor (android/ already present from previous step)
           xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
-          # Delete stale FS cache, keep rest of .godot
-          rm -rf .godot/imported
-          # Re-init to pick up android/ template
-          xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
+          # Verify .godot was created
+          echo ".godot contents:"
+          ls -la .godot/ 2>/dev/null
           # Export
           mkdir -p build
           xvfb-run godot \
