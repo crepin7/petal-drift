@@ -19,9 +19,8 @@ jobs:
       - name: Setup Godot
         uses: chickensoft-games/setup-godot@v2
         with:
-          version: 4.3
-          # Pre-downloads export templates so we don't have to
-          use-double-export: true
+          version: 4.3.0
+          include-templates: true
 
       # Setup Android SDK for the build tools
       - name: Setup Android SDK
