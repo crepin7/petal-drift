@@ -56,6 +56,7 @@ jobs:
           home = os.environ['HOME']
           jhome = os.environ.get('JAVA_HOME', '')
           ahome = os.environ.get('ANDROID_HOME', '')
+          tmpl_dir = os.path.join(home, '.local/share/godot/export_templates/4.3.stable')
           content = f"""[gd_resource type="EditorSettings" load_steps=2 format=3]
 
           [resource]
@@ -67,12 +68,15 @@ jobs:
           android/debug_keystore_pass = "android"
           android/debug_keystore_alias = "androiddebugkey"
           android/force_system_user = true
+          export/export_template_paths/android_debug.apk = "{tmpl_dir}/android_debug.apk"
+          export/export_template_paths/android_release.apk = "{tmpl_dir}/android_release.apk"
+          export/export_template_paths/android_source.zip = "{tmpl_dir}/android_source.zip"
           """
           settings_dir = os.path.join(home, '.config', 'godot')
           os.makedirs(settings_dir, exist_ok=True)
           path = os.path.join(settings_dir, 'editor_settings-4.3.tres')
           with open(path, 'w') as f:
-              f.write(content)
+              f.write(content.strip())
           print('Created:', path)
           PYEOF
 
@@ -81,6 +85,14 @@ jobs:
         env:
           JAVA_HOME: "${{ env.JAVA_HOME }}"
           ANDROID_HOME: "${{ env.ANDROID_HOME }}"
+
+      - name: Also init editor with virtual display for proper defaults
+        run: |
+          sudo apt-get install -y -qq xvfb > /dev/null 2>&1
+          # Force X11 display driver with xvfb to create full editor settings
+          xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
+          echo "Editor settings after init:"
+          find "$HOME/.config/godot" -name "editor*" 2>/dev/null | head -3
 
       - name: Verify export templates
         run: |
