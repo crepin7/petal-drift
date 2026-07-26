@@ -10,40 +10,38 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
-    name: Build Android APK
+    container:
+      image: barichello/godot-ci:4.3
 
     steps:
       - uses: actions/checkout@v4
 
-      # Setup Godot 4.3 with export templates
-      - name: Setup Godot
-        uses: chickensoft-games/setup-godot@v2
-        with:
-          version: 4.3.0
-          include-templates: true
-
-      # Setup Android SDK for the build tools
+      # Install Android SDK components required by Godot
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;23.2.8568313" > /dev/null 2>&1 || true
 
-      # Build the APK (debug build, unsigned — fine for testing)
+      # Create debug keystore (required for unsigned APK)
+      - name: Create debug keystore
+        run: |
+          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android -dname "CN=,OU=,O=,L=,S=,C="
+
+      # Export the APK
       - name: Export Android APK
         run: |
           mkdir -p build
           godot --headless --export-debug "Android" build/petal-drift.apk
-        env:
-          # Suppress some Godot warnings in headless CI
-          GODOT_HEADLESS: 1
 
-      # Upload the APK as a downloadable artifact
-      - name: Upload APK Artifact
+      # Upload the APK as artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: petal-drift-android
           path: build/petal-drift.apk
           if-no-files-found: error
           retention-days: 30
-
-      # Quick size report
-      - name: Check APK size
-        run: ls -lh build/petal-drift.apk
