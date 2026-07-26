@@ -18,6 +18,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK components
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+
+      - name: Install xvfb + setup Godot
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
+
       - name: Setup Godot 4.3
         uses: chickensoft-games/setup-godot@v2
         with:
@@ -26,40 +44,20 @@ jobs:
           include-templates: true
           cache: true
 
-      - name: Install xvfb
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
-
-      - name: Create debug keystore at Godot default path
+      - name: Create debug keystore
         run: |
-          mkdir -p "$HOME/.local/share/godot/keystores"
-          keytool -genkey -v -keystore "$HOME/.local/share/godot/keystores/debug.keystore" \
+          mkdir -p "$HOME/.android"
+          keytool -genkey -v -keystore "$HOME/.android/debug.keystore" \
             -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
-          ls -la "$HOME/.local/share/godot/keystores/"
 
-      - name: Initialize Godot editor (create settings)
+      - name: Init editor + Export
         run: |
           cd "$GITHUB_WORKSPACE"
+          # First: init editor to generate settings file
           xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
-
-      - name: Debug - check all paths
-        run: |
-          echo "=== version.txt ==="
-          cat "$HOME/.local/share/godot/export_templates/4.3.stable/version.txt" 2>/dev/null || echo "NOT FOUND"
-          echo ""
-          echo "=== Template files ==="
-          ls -la "$HOME/.local/share/godot/export_templates/4.3.stable/android"* 2>/dev/null || echo "NOT FOUND"
-          echo ""
-          echo "=== Keystore ==="
-          ls -la "$HOME/.local/share/godot/keystores/" 2>/dev/null || echo "NOT FOUND"
-          echo ""
-          echo "=== Android SDK ==="
-          ls "$ANDROID_HOME/platforms/" 2>/dev/null || echo "NOT FOUND"
-
-      - name: Export APK
-        run: |
-          cd "$GITHUB_WORKSPACE"
+          # Now: export
           mkdir -p build
           xvfb-run godot \
             --display-driver x11 \
