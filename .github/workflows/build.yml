@@ -44,6 +44,20 @@ jobs:
           echo "Editor settings:"
           find "$HOME/.config/godot" -name "editor*" 2>/dev/null
 
+      - name: Debug - check template paths
+        run: |
+          echo "=== Godot version ==="
+          godot --version 2>/dev/null || true
+          echo ""
+          echo "=== version.txt in templates ==="
+          cat "$HOME/.local/share/godot/export_templates/4.3.stable/version.txt" 2>/dev/null || echo "NOT FOUND"
+          echo ""
+          echo "=== All directories in export_templates ==="
+          find "$HOME/.local/share/godot/export_templates" -maxdepth 2 -type d 2>/dev/null
+          echo ""
+          echo "=== Editor settings content ==="
+          cat "$HOME/.config/godot/editor_settings-4.3.tres" 2>/dev/null || echo "NOT FOUND"
+
       - name: Export APK
         run: |
           cd "$GITHUB_WORKSPACE"
