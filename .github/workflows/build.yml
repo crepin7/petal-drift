@@ -9,6 +9,7 @@ on:
 
 env:
   EXPORT_NAME: "petal-drift"
+  PACKAGE_NAME: "com.nousresearch.petaldrift"
 
 jobs:
   build-android:
@@ -30,7 +31,7 @@ jobs:
       - name: Install SDK components
         run: |
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1
 
       - name: Install xvfb
         run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
@@ -43,21 +44,6 @@ jobs:
           include-templates: true
           cache: true
 
-      - name: Create editor settings
-        run: |
-          EDITOR_DIR="$HOME/.config/godot/editor"
-          mkdir -p "$EDITOR_DIR"
-          cat > "$EDITOR_DIR/editor_settings-4.3.tres" << 'EDITOR_SETTINGS'
-          [gd_resource type="EditorSettings"]
-
-          [resource]
-          export/android/java_sdk_path = "/usr/lib/jvm/temurin-17-jdk-amd64"
-          export/android/android_sdk_path = "/usr/local/lib/android/sdk"
-          export/android/debug_keystore = "$HOME/.android/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          EDITOR_SETTINGS
-
       - name: Create debug keystore
         run: |
           mkdir -p "$HOME/.android"
@@ -66,7 +52,7 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Export PCK file
+      - name: Export PCK
         run: |
           cd "$GITHUB_WORKSPACE"
           mkdir -p build
@@ -74,52 +60,68 @@ jobs:
             --display-driver x11 \
             --rendering-driver opengl3 \
             --export-pack "Android" "build/${EXPORT_NAME}.pck"
-          echo "=== PCK exported ==="
-          ls -la build/*.pck
-          # Verify PCK has content
           PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck")
-          if [ "$PCK_SIZE" -lt 1000 ]; then
-            echo "ERROR: PCK file too small ($PCK_SIZE bytes), export likely failed"
-            exit 1
-          fi
+          echo "PCK exported: ${PCK_SIZE} bytes"
+          [ "$PCK_SIZE" -lt 1000 ] && echo "ERROR: PCK too small" && exit 1
 
       - name: Build APK with Gradle
         run: |
+          cd "$GITHUB_WORKSPACE"
           TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
-          
-          # Extract Android Gradle project from template
+
+          # Extract Android Gradle project
           unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE"
-          
-          # Copy PCK into the Gradle project's assets
+
+          # Copy PCK
           mkdir -p "$GITHUB_WORKSPACE/assets"
           cp "build/${EXPORT_NAME}.pck" "$GITHUB_WORKSPACE/assets/data.pck"
-          
-          echo "=== Gradle project structure ==="
-          ls "$GITHUB_WORKSPACE/build.gradle" "$GITHUB_WORKSPACE/AndroidManifest.xml" 2>&1
-          ls "$GITHUB_WORKSPACE/assets/data.pck" 2>&1
-          
-          # Build debug APK with Gradle
+
+          # Patch config.gradle with correct package name + version
+          if [ -f config.gradle ]; then
+            sed -i "s/applicationId=.*/applicationId=\"${PACKAGE_NAME}\"/" config.gradle
+            sed -i "s/versionCode=.*/versionCode=1/" config.gradle
+            sed -i "s/versionName=.*/versionName=\"1.0\"/" config.gradle
+            echo "=== config.gradle ==="
+            cat config.gradle
+          fi
+
+          # Patch AndroidManifest.xml
+          if [ -f AndroidManifest.xml ]; then
+            sed -i "s/package=\"[^\"]*\"/package=\"${PACKAGE_NAME}\"/" AndroidManifest.xml
+            echo "=== AndroidManifest.xml ==="
+            grep "package=" AndroidManifest.xml
+          fi
+
+          # Print gradle.properties
+          echo "=== gradle.properties ==="
+          cat gradle.properties 2>/dev/null || echo "no gradle.properties"
+
+          # Print signing config from build.gradle
+          echo "=== build.gradle signing section ==="
+          grep -A10 "signingConfig" build.gradle 2>/dev/null || echo "no signingConfig found"
+
+          # Build debug APK
           chmod +x gradlew
-          ./gradlew assembleDebug \
-            -Pexport_name="${EXPORT_NAME}" \
-            -Psigning_debug=true \
-            -Pkeystore_user=androiddebugkey \
-            -Pkeystore_password=android \
-            --no-daemon
-          
-          echo "=== Build output ==="
-          find . -name "*.apk" -type f 2>/dev/null
-          
-          # Find and copy the output APK
-          APK_PATH=$(find . -path "*/outputs/apk/debug/*.apk" -type f | head -1)
-          if [ -z "$APK_PATH" ]; then
-            echo "ERROR: No APK found in build outputs"
+          ./gradlew assembleDebug --no-daemon 2>&1 | tail -30
+
+          # Copy output
+          APK_OUT=$(find . -path "*/outputs/apk/debug/*.apk" -type f | head -1)
+          if [ -z "$APK_OUT" ]; then
+            echo "ERROR: No APK found"
+            find . -name "*.apk" -type f 2>/dev/null
             exit 1
           fi
-          
           mkdir -p build
-          cp "$APK_PATH" "build/${EXPORT_NAME}.apk"
-          echo "APK built: build/${EXPORT_NAME}.apk ($(stat -c%s "build/${EXPORT_NAME}.apk") bytes)"
+          cp "$APK_OUT" "build/${EXPORT_NAME}.apk"
+          echo "=== APK built ==="
+          ls -la "build/${EXPORT_NAME}.apk"
+
+          # Verify with aapt
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          if [ -f "$AAPT" ]; then
+            echo "=== APK package info ==="
+            "$AAPT" dump badging "build/${EXPORT_NAME}.apk" 2>/dev/null | grep -E "package:|application-label:|launchable-activity:" | head -5
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
