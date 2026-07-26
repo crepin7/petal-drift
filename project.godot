@@ -1,0 +1,48 @@
+; Petal Drift - A dreamy petal drifting game
+; Godot 4.3
+
+[application]
+config/name="Petal Drift"
+config/description="A dreamy one-touch petal drifting game"
+run/main_scene="res://scenes/main_menu.tscn"
+config/icon="res://assets/icon.svg"
+
+[input]
+drift_left={
+"deadzone": 0.5,
+"events": [{
+"type": 0
+}]
+}
+drift_right={
+"deadzone": 0.5,
+"events": [{
+"type": 0
+}]
+}
+float={
+"deadzone": 0.5,
+"events": [{
+"type": 0
+}]
+}
+
+[display]
+window/size/viewport_width=1080
+window/size/viewport_height=1920
+window/size/mode=0
+window/size/initial_window_type=0
+window/handheld/orientation=1
+
+[input_devices]
+pointing/emulate_touch_from_mouse=true
+
+[rendering]
+renderer/rendering_method=2
+renderer/rendering_method.mobile=1
+
+[physics]
+common/enable_pause_aware_picking=true
+
+[autoload]
+GameManager="*res://scripts/game_manager.gd"

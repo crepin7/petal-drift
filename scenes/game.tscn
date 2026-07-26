@@ -1,0 +1,136 @@
+[gd_scene load_steps=3 format=3 uid="uid://cq28n6lvy2c8g"]
+
+[ext_resource type="Script" path="res://scripts/game.gd" id="1_s5n8p"]
+[ext_resource type="Script" path="res://scripts/player.gd" id="2_t3m7q"]
+[ext_resource type="Script" path="res://scripts/background.gd" id="3_p2k5n"]
+
+[node name="Game" type="Node2D"]
+script = ExtResource("1_s5n8p")
+
+[node name="Background" type="Node2D" parent="."]
+script = ExtResource("3_p2k5n")
+
+[node name="GradientRect" type="ColorRect" parent="Background"]
+layout_mode = 0
+offset_left = -10.0
+offset_top = -10.0
+offset_right = 1090.0
+offset_bottom = 1930.0
+color = Color(0.02, 0.01, 0.06, 1)
+
+[node name="Player" type="Area2D" parent="."]
+script = ExtResource("2_t3m7q")
+position = Vector2(540, 1344)
+
+[node name="PetalSprite" type="Polygon2D" parent="Player"]
+
+[node name="Glow" type="Sprite2D" parent="Player"]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Player"]
+shape = SubResource("circle")
+
+[node name="BounceTimer" type="Timer" parent="Player"]
+one_shot = true
+wait_time = 0.3
+
+[node name="FlowerSpawner" type="Node2D" parent="."]
+
+[node name="HazardSpawner" type="Node2D" parent="."]
+
+[node name="WindSpawner" type="Node2D" parent="."]
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="ScoreLabel" type="Label" parent="CanvasLayer"]
+layout_mode = 0
+anchors_preset = 0
+offset_left = 40.0
+offset_top = 40.0
+offset_right = 240.0
+offset_bottom = 120.0
+theme_override_colors/font_color = Color(1, 0.95, 0.8, 0.9)
+theme_override_font_sizes/font_size = 48
+text = "0"
+
+[node name="ComboLabel" type="Label" parent="CanvasLayer"]
+layout_mode = 0
+anchors_preset = 0
+offset_left = 40.0
+offset_top = 110.0
+offset_right = 240.0
+offset_bottom = 170.0
+theme_override_colors/font_color = Color(1, 0.6, 0.3, 0.8)
+theme_override_font_sizes/font_size = 32
+text = ""
+
+[node name="GameOverUI" type="Control" parent="CanvasLayer"]
+layout_mode = 0
+anchors_preset = 0
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 1080.0
+offset_bottom = 1920.0
+
+[node name="Overlay" type="ColorRect" parent="CanvasLayer/GameOverUI"]
+layout_mode = 1
+anchors_preset = 15
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0, 0, 0, 0.7)
+
+[node name="GameOverLabel" type="Label" parent="CanvasLayer/GameOverUI"]
+layout_mode = 0
+anchors_preset = 0
+offset_left = 240.0
+offset_top = 600.0
+offset_right = 840.0
+offset_bottom = 700.0
+theme_override_colors/font_color = Color(1, 0.85, 0.4, 0.9)
+theme_override_font_sizes/font_size = 56
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Drift Ended"
+
+[node name="FinalScoreLabel" type="Label" parent="CanvasLayer/GameOverUI"]
+layout_mode = 0
+anchors_preset = 0
+offset_left = 290.0
+offset_top = 740.0
+offset_right = 790.0
+offset_bottom = 810.0
+theme_override_colors/font_color = Color(0.9, 0.95, 1, 0.8)
+theme_override_font_sizes/font_size = 36
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Score: 0"
+
+[node name="HighScoreLabel" type="Label" parent="CanvasLayer/GameOverUI"]
+layout_mode = 0
+anchors_preset = 0
+offset_left = 290.0
+offset_top = 830.0
+offset_right = 790.0
+offset_bottom = 890.0
+theme_override_colors/font_color = Color(0.6, 0.6, 0.8, 0.6)
+theme_override_font_sizes/font_size = 24
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Best: 0"
+
+[node name="TapToRestart" type="Label" parent="CanvasLayer/GameOverUI"]
+layout_mode = 0
+anchors_preset = 0
+offset_left = 340.0
+offset_top = 960.0
+offset_right = 740.0
+offset_bottom = 1020.0
+theme_override_colors/font_color = Color(0.9, 0.95, 1, 0.6)
+theme_override_font_sizes/font_size = 24
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Tap to restart"
+
+[sub_resource type="CircleShape2D" id="circle"]
+radius = 15.0

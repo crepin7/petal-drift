@@ -1,0 +1,25 @@
+# Godot auto-generated files
+.godot/
+import/
+*.translation
+
+# Godot export
+build/
+export/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+*.log

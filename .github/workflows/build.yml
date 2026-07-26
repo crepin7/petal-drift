@@ -1,0 +1,50 @@
+name: Build Petal Drift APK
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    name: Build Android APK
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Setup Godot 4.3 with export templates
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.3
+          # Pre-downloads export templates so we don't have to
+          use-double-export: true
+
+      # Setup Android SDK for the build tools
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Build the APK (debug build, unsigned — fine for testing)
+      - name: Export Android APK
+        run: |
+          mkdir -p build
+          godot --headless --export-debug "Android" build/petal-drift.apk
+        env:
+          # Suppress some Godot warnings in headless CI
+          GODOT_HEADLESS: 1
+
+      # Upload the APK as a downloadable artifact
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: petal-drift-android
+          path: build/petal-drift.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Quick size report
+      - name: Check APK size
+        run: ls -lh build/petal-drift.apk
