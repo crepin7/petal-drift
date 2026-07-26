@@ -37,11 +37,9 @@ jobs:
 
       - name: Install Android SDK extras
         run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | $SDKMANAGER --licenses > /dev/null 2>&1 || true
-          yes | $SDKMANAGER \
-            "platforms;android-34" \
-            "build-tools;34.0.0" > /dev/null 2>&1 || true
+          SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | $SDK --licenses > /dev/null 2>&1 || true
+          yes | $SDK "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
 
       - name: Create debug keystore
         run: |
@@ -51,28 +49,54 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Install xvfb for virtual display
+      - name: Write editor settings script
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
+          cat > /tmp/write_settings.py << 'PYEOF'
+          import os
+          home = os.environ['HOME']
+          jhome = os.environ.get('JAVA_HOME', '')
+          ahome = os.environ.get('ANDROID_HOME', '')
+          content = f"""[gd_resource type="EditorSettings" load_steps=2 format=3]
 
-      - name: Initialize editor settings (virtual display)
+          [resource]
+          version = 4
+          rendering/quality/driver/driver_name = "opengl3"
+          android/java_sdk_path = "{jhome}"
+          android/android_sdk_path = "{ahome}"
+          android/debug_keystore = "{home}/.android/debug.keystore"
+          android/debug_keystore_pass = "android"
+          android/debug_keystore_alias = "androiddebugkey"
+          android/force_system_user = true
+          """
+          settings_dir = os.path.join(home, '.config', 'godot')
+          os.makedirs(settings_dir, exist_ok=True)
+          path = os.path.join(settings_dir, 'editor_settings-4.3.tres')
+          with open(path, 'w') as f:
+              f.write(content)
+          print('Created:', path)
+          PYEOF
+
+      - name: Configure Godot editor settings
+        run: python3 /tmp/write_settings.py
+        env:
+          JAVA_HOME: "${{ env.JAVA_HOME }}"
+          ANDROID_HOME: "${{ env.ANDROID_HOME }}"
+
+      - name: Verify export templates
         run: |
-          # First run with virtual display to create editor settings
-          xvfb-run godot --editor --quit 2>&1 || true
-          echo "--- Check for editor settings ---"
-          find "$HOME/.config/godot" -name "editor*" -o -name "Editor*" 2>/dev/null
-          find "$HOME/.local/share/godot" -name "editor*" -o -name "Editor*" 2>/dev/null
-          # Also check what templates are found
-          ls -la "$HOME/.local/share/godot/export_templates/" 2>/dev/null
+          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
+          echo "Templates dir: $TEMPLATES_DIR"
+          ls -la "$TEMPLATES_DIR/" 2>/dev/null || echo "Not found!"
+          find "$HOME/.local/share/godot" -name "android_source*" 2>/dev/null
 
       - name: Export APK
         run: |
           mkdir -p build
-          xvfb-run godot --export-debug "Android" "build/${EXPORT_NAME}.apk"
+          godot --headless --rendering-driver opengl3 \
+            --export-debug "Android" "build/${EXPORT_NAME}.apk"
         env:
           ANDROID_HOME: "${{ env.ANDROID_HOME }}"
           JAVA_HOME: "${{ env.JAVA_HOME }}"
-          DISPLAY: ":99"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
