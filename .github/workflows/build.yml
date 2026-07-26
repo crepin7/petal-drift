@@ -24,6 +24,14 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK components
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+
       - name: Install xvfb
         run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
 
@@ -34,6 +42,21 @@ jobs:
           use-dotnet: false
           include-templates: true
           cache: true
+
+      - name: Create editor settings
+        run: |
+          EDITOR_DIR="$HOME/.config/godot/editor"
+          mkdir -p "$EDITOR_DIR"
+          cat > "$EDITOR_DIR/editor_settings-4.3.tres" << 'EDITOR_SETTINGS'
+          [gd_resource type="EditorSettings"]
+
+          [resource]
+          export/android/java_sdk_path = "/usr/lib/jvm/temurin-17-jdk-amd64"
+          export/android/android_sdk_path = "/usr/local/lib/android/sdk"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EDITOR_SETTINGS
 
       - name: Create debug keystore
         run: |
@@ -51,43 +74,52 @@ jobs:
             --display-driver x11 \
             --rendering-driver opengl3 \
             --export-pack "Android" "build/${EXPORT_NAME}.pck"
-          echo "PCK exported:"
-          ls -la build/*.pck 2>/dev/null || echo "PCK NOT FOUND"
+          echo "=== PCK exported ==="
+          ls -la build/*.pck
+          # Verify PCK has content
+          PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck")
+          if [ "$PCK_SIZE" -lt 1000 ]; then
+            echo "ERROR: PCK file too small ($PCK_SIZE bytes), export likely failed"
+            exit 1
+          fi
 
-      - name: Build APK manually
+      - name: Build APK with Gradle
         run: |
-          cd "$GITHUB_WORKSPACE/build"
           TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
           
-          # Copy the template APK
-          cp "$TEMPLATES_DIR/android_debug.apk" "${EXPORT_NAME}.apk"
+          # Extract Android Gradle project from template
+          unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE"
           
-          # Remove old PCK if present, then add ours with correct path
-          zip -d "${EXPORT_NAME}.apk" "assets/data.pck" 2>/dev/null || true
+          # Copy PCK into the Gradle project's assets
+          mkdir -p "$GITHUB_WORKSPACE/assets"
+          cp "build/${EXPORT_NAME}.pck" "$GITHUB_WORKSPACE/assets/data.pck"
           
-          # Prepare the PCK with correct internal path
-          mkdir -p /tmp/pck_staging/assets
-          cp "${EXPORT_NAME}.pck" /tmp/pck_staging/assets/data.pck
+          echo "=== Gradle project structure ==="
+          ls "$GITHUB_WORKSPACE/build.gradle" "$GITHUB_WORKSPACE/AndroidManifest.xml" 2>&1
+          ls "$GITHUB_WORKSPACE/assets/data.pck" 2>&1
           
-          # Add to APK
-          cd /tmp/pck_staging
-          zip -r "$GITHUB_WORKSPACE/build/${EXPORT_NAME}.apk" assets/
-          cd "$GITHUB_WORKSPACE/build"
+          # Build debug APK with Gradle
+          chmod +x gradlew
+          ./gradlew assembleDebug \
+            -Pexport_name="${EXPORT_NAME}" \
+            -Psigning_debug=true \
+            -Pkeystore_user=androiddebugkey \
+            -Pkeystore_password=android \
+            --no-daemon
           
-          # Re-align APK (zipalign) then sign
-          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          "$ANDROID_HOME/build-tools/34.0.0/zipalign" -f 4 "${EXPORT_NAME}.apk" "${EXPORT_NAME}-aligned.apk"
-          mv "${EXPORT_NAME}-aligned.apk" "${EXPORT_NAME}.apk"
+          echo "=== Build output ==="
+          find . -name "*.apk" -type f 2>/dev/null
           
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
-            --ks "$HOME/.android/debug.keystore" \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --ks-key-alias androiddebugkey \
-            "${EXPORT_NAME}.apk"
+          # Find and copy the output APK
+          APK_PATH=$(find . -path "*/outputs/apk/debug/*.apk" -type f | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: No APK found in build outputs"
+            exit 1
+          fi
           
-          echo "APK built successfully:"
-          ls -la "${EXPORT_NAME}.apk"
+          mkdir -p build
+          cp "$APK_PATH" "build/${EXPORT_NAME}.apk"
+          echo "APK built: build/${EXPORT_NAME}.apk ($(stat -c%s "build/${EXPORT_NAME}.apk") bytes)"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
