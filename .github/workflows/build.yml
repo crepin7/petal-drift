@@ -54,17 +54,23 @@ jobs:
       - name: Install Android build template in project
         run: |
           TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
-          echo "Extracting android_source.zip into project..."
-          unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE"
-          echo "Contents of android/ directory:"
-          ls -la "$GITHUB_WORKSPACE/android/" 2>/dev/null || echo "NOT FOUND"
+          echo "=== Contents of android_source.zip (top 30) ==="
+          unzip -l "$TEMPLATES_DIR/android_source.zip" 2>/dev/null | head -30
+          echo ""
+          echo "=== Extracting ==="
+          mkdir -p "$GITHUB_WORKSPACE/android"
+          unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE/android" 2>/dev/null
+          echo "Extracted files:"
+          find "$GITHUB_WORKSPACE/android" -maxdepth 2 -type f | head -20
 
-      - name: Init editor + Export APK
+      - name: Init editor
         run: |
           cd "$GITHUB_WORKSPACE"
-          # Init editor to generate settings
           xvfb-run godot --display-driver x11 --rendering-driver opengl3 --editor --quit 2>/dev/null || true
-          # Export
+
+      - name: Export APK
+        run: |
+          cd "$GITHUB_WORKSPACE"
           mkdir -p build
           xvfb-run godot \
             --display-driver x11 \
