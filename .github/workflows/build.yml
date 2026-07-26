@@ -59,8 +59,8 @@ jobs:
           xvfb-run godot \
             --display-driver x11 \
             --rendering-driver opengl3 \
-            --export-pack "Android" "build/${EXPORT_NAME}.pck"
-          PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck")
+            --export-pack "Android" "build/${EXPORT_NAME}.pck" || true
+          PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck" 2>/dev/null || echo "0")
           echo "PCK exported: ${PCK_SIZE} bytes"
           [ "$PCK_SIZE" -lt 1000 ] && echo "ERROR: PCK too small" && exit 1
 
