@@ -9,7 +9,7 @@ on:
 
 env:
   EXPORT_NAME: "petal-drift"
-  PACKAGE_NAME: "com.nousresearch.petaldrift"
+  GODOT_VERSION: "4.3"
 
 jobs:
   build-android:
@@ -31,10 +31,10 @@ jobs:
       - name: Install SDK components
         run: |
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
 
       - name: Install xvfb
-        run: sudo apt-get update -qq && sudo -S -p '' apt-get install -y -qq xvfb > /dev/null 2>&1
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null 2>&1
 
       - name: Setup Godot 4.3
         uses: chickensoft-games/setup-godot@v2
@@ -52,78 +52,96 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Export PCK
+      - name: Import resources & Export PCK
         run: |
           set +e
           cd "$GITHUB_WORKSPACE"
           mkdir -p build
+
+          # Step 1: Import all resources by running Godot editor once in headless mode.
+          # This generates the .godot/ import cache needed for a valid PCK export.
+          # Without this step, the PCK will be nearly empty (just a header, ~46KB).
+          echo "=== Importing resources (editor headless) ==="
+          godot --headless --import 2>&1 || true
+
+          # Verify import cache was created
+          if [ -d ".godot/imported" ]; then
+            IMPORT_COUNT=$(ls -1 .godot/imported/ 2>/dev/null | wc -l)
+            echo "Imported resources: $IMPORT_COUNT"
+          else
+            echo "WARNING: .godot/imported not found — PCK may be incomplete"
+          fi
+
+          # Step 2: Export PCK with xvfb (Godot 4.3 needs a display for export-pack)
+          echo "=== Exporting PCK ==="
           xvfb-run godot \
             --display-driver x11 \
             --rendering-driver opengl3 \
-            --export-pack "Android" "build/${EXPORT_NAME}.pck"
+            --export-pack "Android" "build/${EXPORT_NAME}.pck" 2>&1 || true
+
           PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck" 2>/dev/null || echo "0")
           echo "PCK size: ${PCK_SIZE} bytes"
-          if [ "$PCK_SIZE" -lt 1000 ]; then
-            echo "ERROR: PCK too small (${PCK_SIZE} bytes)"
-            exit 1
+          if [ "$PCK_SIZE" -lt 50000 ]; then
+            echo "ERROR: PCK too small (${PCK_SIZE} bytes) — resources not exported"
+            echo "Attempting re-import + re-export..."
+
+            # Force re-import by clearing cache and trying again
+            rm -rf .godot
+            godot --headless --import 2>&1 || true
+
+            xvfb-run godot \
+              --display-driver x11 \
+              --rendering-driver opengl3 \
+              --export-pack "Android" "build/${EXPORT_NAME}.pck" 2>&1 || true
+
+            PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck" 2>/dev/null || echo "0")
+            echo "PCK size (2nd attempt): ${PCK_SIZE} bytes"
+            if [ "$PCK_SIZE" -lt 50000 ]; then
+              echo "FATAL: PCK still too small after re-import"
+              exit 1
+            fi
           fi
+
           exit 0
 
-      - name: Build APK with Gradle
+      - name: Inject PCK into pre-built APK
         run: |
-          set +e
-          cd "$GITHUB_WORKSPACE"
-          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
+          set -e
+          cd "$GITHUB_WORKSPACE/build"
+          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
 
-          # Extract Android Gradle project
-          unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE"
+          # Use the pre-built debug APK from the export template
+          echo "=== Copying template APK ==="
+          cp "$TEMPLATES_DIR/android_debug.apk" "${EXPORT_NAME}.apk"
 
-          # Copy PCK into assets
-          mkdir -p "$GITHUB_WORKSPACE/assets"
-          cp "build/${EXPORT_NAME}.pck" "$GITHUB_WORKSPACE/assets/data.pck"
+          # Remove the placeholder PCK from the template APK
+          echo "=== Removing placeholder PCK ==="
+          zip -d "${EXPORT_NAME}.apk" "assets/data.pck" 2>/dev/null || true
 
-          # Add project config to gradle.properties
-          echo "" >> gradle.properties
-          echo "# Petal Drift Android configuration" >> gradle.properties
-          echo "exportEnabled=true" >> gradle.properties
-          echo "package_name=${PACKAGE_NAME}" >> gradle.properties
-          echo "version_code=1" >> gradle.properties
-          echo "version_name=1.0" >> gradle.properties
-          echo "perform_signing=true" >> gradle.properties
-          echo "keystore=${HOME}/.android/debug.keystore" >> gradle.properties
-          echo "keystore_user=androiddebugkey" >> gradle.properties
-          echo "keystore_password=android" >> gradle.properties
+          # Inject our PCK with the correct internal path
+          echo "=== Injecting game PCK ==="
+          mkdir -p /tmp/staging/assets
+          cp "${EXPORT_NAME}.pck" /tmp/staging/assets/data.pck
+          cd /tmp/staging && zip -r "$GITHUB_WORKSPACE/build/${EXPORT_NAME}.apk" assets/
 
-          echo "=== gradle.properties ==="
-          cat gradle.properties
+          # Zip-align the APK (required for Android)
+          echo "=== Zip-aligning APK ==="
+          cd "$GITHUB_WORKSPACE/build"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+          "$BUILD_TOOLS/zipalign" -f 4 "${EXPORT_NAME}.apk" "${EXPORT_NAME}-aligned.apk"
+          mv "${EXPORT_NAME}-aligned.apk" "${EXPORT_NAME}.apk"
 
-          # Build debug APK
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon 2>&1 | tail -30
-          GRADLE_EXIT=$?
+          # Sign the APK with the debug keystore
+          echo "=== Signing APK ==="
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$HOME/.android/debug.keystore" \
+            --ks-pass pass:android --key-pass pass:android \
+            --ks-key-alias androiddebugkey "${EXPORT_NAME}.apk"
 
-          echo "Gradle exit code: $GRADLE_EXIT"
-
-          # Copy output
-          APK_OUT=$(find . -path "*/outputs/apk/debug/*.apk" -type f | head -1)
-          if [ -z "$APK_OUT" ]; then
-            echo "ERROR: No APK found in build outputs"
-            find . -name "*.apk" -type f 2>/dev/null || true
-            find . -path "*/outputs/*" -type f 2>/dev/null | head -20
-            exit 1
-          fi
-
-          mkdir -p build
-          cp "$APK_OUT" "build/${EXPORT_NAME}.apk"
-          echo "=== APK built ==="
-          ls -la "build/${EXPORT_NAME}.apk"
-
-          # Verify with aapt
-          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
-          if [ -f "$AAPT" ]; then
-            echo "=== APK package info ==="
-            "$AAPT" dump badging "build/${EXPORT_NAME}.apk" 2>/dev/null | grep -E "package:|application-label:|launchable-activity:" | head -5
-          fi
+          # Verify
+          echo "=== APK info ==="
+          ls -la "${EXPORT_NAME}.apk"
+          "$BUILD_TOOLS/aapt" dump badging "${EXPORT_NAME}.apk" 2>/dev/null | grep -E "package:|application-label:|launchable-activity:" | head -5
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
