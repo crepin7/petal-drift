@@ -52,57 +52,40 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Import resources & Export PCK
+      - name: Import resources (xvfb)
         run: |
-          set +e
           cd "$GITHUB_WORKSPACE"
-          mkdir -p build
-
-          # Step 1: Import all resources by running Godot editor once in headless mode.
-          # This generates the .godot/ import cache needed for a valid PCK export.
-          # Without this step, the PCK will be nearly empty (just a header, ~46KB).
-          echo "=== Importing resources (editor headless) ==="
-          godot --headless --import 2>&1 || true
-
-          # Verify import cache was created
+          echo "=== Importing resources with display ==="
+          # L'import a besoin d'un display pour charger les textures/shaders
+          xvfb-run godot --display-driver x11 --rendering-driver opengl3 --import 2>&1 | tail -20
+          echo "=== Import done ==="
+          # Vérifier que le cache d'import existe
           if [ -d ".godot/imported" ]; then
             IMPORT_COUNT=$(ls -1 .godot/imported/ 2>/dev/null | wc -l)
             echo "Imported resources: $IMPORT_COUNT"
           else
-            echo "WARNING: .godot/imported not found — PCK may be incomplete"
+            echo "ERROR: .godot/imported not found"
+            exit 1
           fi
 
-          # Step 2: Export PCK with xvfb (Godot 4.3 needs a display for export-pack)
+      - name: Export PCK
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p build
           echo "=== Exporting PCK ==="
           xvfb-run godot \
             --display-driver x11 \
             --rendering-driver opengl3 \
-            --export-pack "Android" "build/${EXPORT_NAME}.pck" 2>&1 || true
-
+            --export-pack "Android" "build/${EXPORT_NAME}.pck" 2>&1 | tail -20
           PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck" 2>/dev/null || echo "0")
           echo "PCK size: ${PCK_SIZE} bytes"
           if [ "$PCK_SIZE" -lt 50000 ]; then
-            echo "ERROR: PCK too small (${PCK_SIZE} bytes) — resources not exported"
-            echo "Attempting re-import + re-export..."
-
-            # Force re-import by clearing cache and trying again
-            rm -rf .godot
-            godot --headless --import 2>&1 || true
-
-            xvfb-run godot \
-              --display-driver x11 \
-              --rendering-driver opengl3 \
-              --export-pack "Android" "build/${EXPORT_NAME}.pck" 2>&1 || true
-
-            PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck" 2>/dev/null || echo "0")
-            echo "PCK size (2nd attempt): ${PCK_SIZE} bytes"
-            if [ "$PCK_SIZE" -lt 50000 ]; then
-              echo "FATAL: PCK still too small after re-import"
-              exit 1
-            fi
+            echo "ERROR: PCK too small (${PCK_SIZE} bytes)"
+            echo "Listing .godot/imported to check what was imported:"
+            ls -la .godot/imported/ 2>/dev/null | head -20
+            exit 1
           fi
-
-          exit 0
+          echo "=== PCK export successful ==="
 
       - name: Inject PCK into pre-built APK
         run: |
@@ -110,35 +93,29 @@ jobs:
           cd "$GITHUB_WORKSPACE/build"
           TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
 
-          # Use the pre-built debug APK from the export template
           echo "=== Copying template APK ==="
           cp "$TEMPLATES_DIR/android_debug.apk" "${EXPORT_NAME}.apk"
 
-          # Remove the placeholder PCK from the template APK
           echo "=== Removing placeholder PCK ==="
           zip -d "${EXPORT_NAME}.apk" "assets/data.pck" 2>/dev/null || true
 
-          # Inject our PCK with the correct internal path
           echo "=== Injecting game PCK ==="
           mkdir -p /tmp/staging/assets
           cp "${EXPORT_NAME}.pck" /tmp/staging/assets/data.pck
           cd /tmp/staging && zip -r "$GITHUB_WORKSPACE/build/${EXPORT_NAME}.apk" assets/
 
-          # Zip-align the APK (required for Android)
           echo "=== Zip-aligning APK ==="
           cd "$GITHUB_WORKSPACE/build"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
           "$BUILD_TOOLS/zipalign" -f 4 "${EXPORT_NAME}.apk" "${EXPORT_NAME}-aligned.apk"
           mv "${EXPORT_NAME}-aligned.apk" "${EXPORT_NAME}.apk"
 
-          # Sign the APK with the debug keystore
           echo "=== Signing APK ==="
           "$BUILD_TOOLS/apksigner" sign \
             --ks "$HOME/.android/debug.keystore" \
             --ks-pass pass:android --key-pass pass:android \
             --ks-key-alias androiddebugkey "${EXPORT_NAME}.apk"
 
-          # Verify
           echo "=== APK info ==="
           ls -la "${EXPORT_NAME}.apk"
           "$BUILD_TOOLS/aapt" dump badging "${EXPORT_NAME}.apk" 2>/dev/null | grep -E "package:|application-label:|launchable-activity:" | head -5
