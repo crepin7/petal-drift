@@ -52,7 +52,17 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Export APK with xvfb
+      - name: Install Android build template
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          echo "=== Extracting android_source.zip ==="
+          unzip -o -q "$TEMPLATES_DIR/android_source.zip" -d "$GITHUB_WORKSPACE"
+          echo "=== Template installed ==="
+          ls -la "$GITHUB_WORKSPACE/android/" 2>/dev/null || echo "No android/ directory"
+          # Godot checks for the android/ directory to confirm template is installed
+
+      - name: Import resources & Export APK
         run: |
           cd "$GITHUB_WORKSPACE"
           mkdir -p build
@@ -68,55 +78,19 @@ jobs:
 
           APK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.apk" 2>/dev/null || echo "0")
           echo "APK size: ${APK_SIZE} bytes"
-          ls -la build/ 2>/dev/null || echo "build/ is empty"
 
           if [ "$APK_SIZE" -lt 10000 ]; then
             echo "ERROR: APK too small or export failed"
-            echo "Trying PCK injection fallback..."
             exit 1
           fi
 
-      - name: PCK injection fallback
-        if: failure()
+          echo "=== APK built successfully ==="
+          ls -la "build/${EXPORT_NAME}.apk"
+
+      - name: Verify APK
         run: |
-          cd "$GITHUB_WORKSPACE"
-          mkdir -p build
-
-          echo "=== Exporting PCK ==="
-          xvfb-run godot \
-            --display-driver x11 \
-            --rendering-driver opengl3 \
-            --export-pack "Android" "build/${EXPORT_NAME}.pck" 2>&1 | tail -5 || true
-
-          PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck" 2>/dev/null || echo "0")
-          echo "PCK size: ${PCK_SIZE} bytes"
-
-          if [ "$PCK_SIZE" -lt 50000 ]; then
-            echo "FATAL: PCK too small, cannot build APK"
-            exit 1
-          fi
-
-          cd "$GITHUB_WORKSPACE/build"
-          TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
-
-          cp "$TEMPLATES_DIR/android_debug.apk" "${EXPORT_NAME}.apk"
-          zip -d "${EXPORT_NAME}.apk" "assets/data.pck" 2>/dev/null || true
-
-          mkdir -p /tmp/staging/assets
-          cp "${EXPORT_NAME}.pck" /tmp/staging/assets/data.pck
-          cd /tmp/staging && zip -r "$GITHUB_WORKSPACE/build/${EXPORT_NAME}.apk" assets/
-
-          cd "$GITHUB_WORKSPACE/build"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
-          "$BUILD_TOOLS/zipalign" -f 4 "${EXPORT_NAME}.apk" "${EXPORT_NAME}-aligned.apk"
-          mv "${EXPORT_NAME}-aligned.apk" "${EXPORT_NAME}.apk"
-
-          "$BUILD_TOOLS/apksigner" sign \
-            --ks "$HOME/.android/debug.keystore" \
-            --ks-pass pass:android --key-pass pass:android \
-            --ks-key-alias androiddebugkey "${EXPORT_NAME}.apk"
-
-          ls -la "${EXPORT_NAME}.apk"
+          "$BUILD_TOOLS/aapt" dump badging "build/${EXPORT_NAME}.apk" 2>/dev/null | grep -E "package:|application-label:|launchable-activity:" | head -5
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
