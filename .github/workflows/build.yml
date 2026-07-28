@@ -52,73 +52,71 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
 
-      - name: Import resources (xvfb)
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          echo "=== Importing resources with display ==="
-          # L'import a besoin d'un display pour charger les textures/shaders
-          xvfb-run godot --display-driver x11 --rendering-driver opengl3 --import 2>&1 | tail -20
-          echo "=== Import done ==="
-          # Vérifier que le cache d'import existe
-          if [ -d ".godot/imported" ]; then
-            IMPORT_COUNT=$(ls -1 .godot/imported/ 2>/dev/null | wc -l)
-            echo "Imported resources: $IMPORT_COUNT"
-          else
-            echo "ERROR: .godot/imported not found"
-            exit 1
-          fi
-
-      - name: Export PCK
+      - name: Export APK with xvfb
         run: |
           cd "$GITHUB_WORKSPACE"
           mkdir -p build
+
+          echo "=== Importing resources ==="
+          xvfb-run godot --display-driver x11 --rendering-driver opengl3 --import 2>&1 | tail -5 || true
+
+          echo "=== Exporting debug APK ==="
+          xvfb-run godot \
+            --display-driver x11 \
+            --rendering-driver opengl3 \
+            --export-debug "Android" "build/${EXPORT_NAME}.apk" 2>&1
+
+          APK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.apk" 2>/dev/null || echo "0")
+          echo "APK size: ${APK_SIZE} bytes"
+          ls -la build/ 2>/dev/null || echo "build/ is empty"
+
+          if [ "$APK_SIZE" -lt 10000 ]; then
+            echo "ERROR: APK too small or export failed"
+            echo "Trying PCK injection fallback..."
+            exit 1
+          fi
+
+      - name: PCK injection fallback
+        if: failure()
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p build
+
           echo "=== Exporting PCK ==="
           xvfb-run godot \
             --display-driver x11 \
             --rendering-driver opengl3 \
-            --export-pack "Android" "build/${EXPORT_NAME}.pck" 2>&1 | tail -20
+            --export-pack "Android" "build/${EXPORT_NAME}.pck" 2>&1 | tail -5 || true
+
           PCK_SIZE=$(stat -c%s "build/${EXPORT_NAME}.pck" 2>/dev/null || echo "0")
           echo "PCK size: ${PCK_SIZE} bytes"
+
           if [ "$PCK_SIZE" -lt 50000 ]; then
-            echo "ERROR: PCK too small (${PCK_SIZE} bytes)"
-            echo "Listing .godot/imported to check what was imported:"
-            ls -la .godot/imported/ 2>/dev/null | head -20
+            echo "FATAL: PCK too small, cannot build APK"
             exit 1
           fi
-          echo "=== PCK export successful ==="
 
-      - name: Inject PCK into pre-built APK
-        run: |
-          set -e
           cd "$GITHUB_WORKSPACE/build"
           TEMPLATES_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
 
-          echo "=== Copying template APK ==="
           cp "$TEMPLATES_DIR/android_debug.apk" "${EXPORT_NAME}.apk"
-
-          echo "=== Removing placeholder PCK ==="
           zip -d "${EXPORT_NAME}.apk" "assets/data.pck" 2>/dev/null || true
 
-          echo "=== Injecting game PCK ==="
           mkdir -p /tmp/staging/assets
           cp "${EXPORT_NAME}.pck" /tmp/staging/assets/data.pck
           cd /tmp/staging && zip -r "$GITHUB_WORKSPACE/build/${EXPORT_NAME}.apk" assets/
 
-          echo "=== Zip-aligning APK ==="
           cd "$GITHUB_WORKSPACE/build"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
           "$BUILD_TOOLS/zipalign" -f 4 "${EXPORT_NAME}.apk" "${EXPORT_NAME}-aligned.apk"
           mv "${EXPORT_NAME}-aligned.apk" "${EXPORT_NAME}.apk"
 
-          echo "=== Signing APK ==="
           "$BUILD_TOOLS/apksigner" sign \
             --ks "$HOME/.android/debug.keystore" \
             --ks-pass pass:android --key-pass pass:android \
             --ks-key-alias androiddebugkey "${EXPORT_NAME}.apk"
 
-          echo "=== APK info ==="
           ls -la "${EXPORT_NAME}.apk"
-          "$BUILD_TOOLS/aapt" dump badging "${EXPORT_NAME}.apk" 2>/dev/null | grep -E "package:|application-label:|launchable-activity:" | head -5
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
